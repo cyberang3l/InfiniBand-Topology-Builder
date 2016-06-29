@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+from __future__ import print_function
 import os
 import sys
 import argparse
@@ -27,7 +28,7 @@ __all__ = [
 ]
 
 PROGRAM_NAME = 'FatTreeBuilder'
-VERSION = '0.2.0'
+VERSION = '0.2.1'
 AUTHOR = 'Vangelis Tasoulas'
 
 LOG = logging.getLogger('default.' + __name__)
@@ -393,18 +394,18 @@ if __name__ == '__main__':
 
 
     # Print the topology
-    print '#'
-    print '# Topology file: generated with FatTreeBuilder.py on {}'.format(time.ctime())
-    print '# https://github.com/cyberang3l/InfiniBand-Topology-Builder/'
-    print '#'
-    print '# Topology description'
-    print '# -------------------------------'
-    print '# k = {}, n = {}{fully_populated}'.format(k, n, fully_populated=', Fully populated' if fully_connected_roots else '')
-    print '# Total number of nodes: {}'.format(number_of_hca + number_of_sw)
-    print '# Total number of Switches: {}'.format(number_of_sw)
-    print '# Total number of HCAs: {}'.format(number_of_hca)
-    print '#'
-    print ''
+    print('#')
+    print('# Topology file: generated with FatTreeBuilder.py on {}'.format(time.ctime()))
+    print('# https://github.com/cyberang3l/InfiniBand-Topology-Builder/')
+    print('#')
+    print('# Topology description')
+    print('# -------------------------------')
+    print('# k = {}, n = {}{fully_populated}'.format(k, n, fully_populated=', Fully populated' if fully_connected_roots else ''))
+    print('# Total number of nodes: {}'.format(number_of_hca + number_of_sw))
+    print('# Total number of Switches: {}'.format(number_of_sw))
+    print('# Total number of HCAs: {}'.format(number_of_hca))
+    print('#')
+    print('')
 
     for local_node_name in topology.keys():
         node_type = topology[local_node_name]['node_type']
@@ -413,21 +414,21 @@ if __name__ == '__main__':
         node_guid = int_to_hex_str(topology[local_node_name]['guids']['node'], 16)
 
 
-        print 'vendid=0x0'
-        print 'devid=0x0'
-        print 'sysimgguid={node_guid_with_0x}'.format(node_guid_with_0x = int_to_hex_str(topology[local_node_name]['guids']['node'], prefix_with_0x=True))
+        print('vendid=0x0')
+        print('devid=0x0')
+        print('sysimgguid={node_guid_with_0x}'.format(node_guid_with_0x = int_to_hex_str(topology[local_node_name]['guids']['node'], prefix_with_0x=True)))
         if node_type == 'switch':
-            print 'switchguid={node_guid_with_0x}({node_guid})'.format(node_guid_with_0x = int_to_hex_str(topology[local_node_name]['guids']['node'],
+            print('switchguid={node_guid_with_0x}({node_guid})'.format(node_guid_with_0x = int_to_hex_str(topology[local_node_name]['guids']['node'],
                                                                                                           prefix_with_0x=True),
-                                                                       node_guid = int_to_hex_str(topology[local_node_name]['guids']['node']))
+                                                                       node_guid = int_to_hex_str(topology[local_node_name]['guids']['node'])))
         elif node_type == 'hca':
-            print 'caguid={node_guid_with_0x}'.format(node_guid_with_0x = int_to_hex_str(topology[local_node_name]['guids']['node'], prefix_with_0x=True))
+            print('caguid={node_guid_with_0x}'.format(node_guid_with_0x = int_to_hex_str(topology[local_node_name]['guids']['node'], prefix_with_0x=True)))
 
-        print node_line.format(node_type_long = node_type_long,
+        print(node_line.format(node_type_long = node_type_long,
                                total_ports = topology[local_node_name]['total_ports'],
                                node_type_short = node_type_short,
                                node_guid = node_guid,
-                               node_name = local_node_name)
+                               node_name = local_node_name))
         for port in xrange(1, topology[local_node_name]['total_ports'] + 1):
             node_port_guid = int_to_hex_str(topology[local_node_name]['guids'][port]) if node_type == 'hca' else None
             if topology[local_node_name]['ports'][port]:
@@ -439,17 +440,17 @@ if __name__ == '__main__':
                 rem_node_guid = int_to_hex_str(topology[rem_node_name]['guids']['node'], 16)
                 rem_node_port_guid = int_to_hex_str(topology[rem_node_name]['guids'][rem_node_port]) if rem_node_type == 'hca' else None
 
-                print port_lines[node_type][rem_node_type].format(local_port = port,
+                print(port_lines[node_type][rem_node_type].format(local_port = port,
                                                                   rem_node_type_short = rem_node_type_short,
                                                                   rem_node_guid = rem_node_guid,
                                                                   rem_port = rem_node_port,
                                                                   rem_node_name = rem_node_name,
                                                                   link_speed = default_link_speed,
                                                                   rem_port_guid = rem_node_port_guid,
-                                                                  local_port_guid = node_port_guid)
+                                                                  local_port_guid = node_port_guid))
 
             if (port == topology[local_node_name]['total_ports']):
-                print ''
+                print('')
 
     # Print the informational message in the STDERR with LOG, so that it doesn't get in the output file when STDOUT is redirected in a file.
     LOG.info("Total number of nodes: {}\n"
