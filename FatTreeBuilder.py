@@ -26,7 +26,7 @@ __all__ = [
 ]
 
 PROGRAM_NAME = 'FatTreeBuilder'
-VERSION = '0.0.1'
+VERSION = '0.1.0'
 AUTHOR = 'Vangelis Tasoulas'
 
 LOG = logging.getLogger('default.' + __name__)
@@ -199,6 +199,9 @@ if __name__ == '__main__':
     #LOG.info("INFO message are printed")
     #LOG.debug("DEBUG messages are printed")
 
+    hca_guid_base = 0x0 # We want to define a GUID for each HCA and each port. The node GUID of the first Hca will be hca_guid_base
+    sw_guid_base = hca_guid_base + 0x1000000
+
     k = options.k # k (k-ary-n-Tree) is half the number of ports for each switch
     n = options.n # n (k-ary-n-Tree) is the number of levels in the tree
 
@@ -217,18 +220,33 @@ if __name__ == '__main__':
         number_of_hca = k**n
 
     topology = OrderedDict()
+
     # Initialize all switches
     for sw_no in xrange(number_of_sw):
         sw = "Switch{}".format(sw_no)
         topology[sw] = {}
+
+        topology[sw]['type'] = 'switch'
+        topology[sw]['port_connections'] = {}
+        topology[sw]['guids'] = {}
+
+        topology[sw]['guids']['node'] = sw_guid_base + sw_no
         for port in xrange(1, k * 2 + 1):
-            topology[sw][port] = None
+            topology[sw]['port_connections'][port] = None
+        topology[sw]['total_ports'] = len(topology[sw]['port_connections'])
 
     # Initialize all Hca's
     for hca_no in xrange(number_of_hca):
         hca = "Hca{}".format(hca_no)
         topology[hca] = {}
-        topology[hca][1] = None
+        topology[hca]['type'] = 'hca'
+        topology[hca]['guids'] = {}
+        topology[hca]['port_connections'] = {}
+
+        topology[hca]['guids']['node'] = hca_guid_base + hca_no * 2
+        topology[hca]['port_connections'][1] = None
+        topology[hca]['total_ports'] = len(topology[hca]['port_connections'])
+        topology[hca]['guids'][1] = topology[hca]['guids']['node'] + 1
 
     # First connect the switches between them, to form the fat tree.
     for sw_no in xrange(number_of_sw):
@@ -277,11 +295,11 @@ if __name__ == '__main__':
             remote_sw = "Switch{}".format(remote_sw_no)
 
             remote_port = remote_port_offset + 1
-            while topology[remote_sw][remote_port] is not None:
+            while topology[remote_sw]['port_connections'][remote_port] is not None:
                 remote_port += 1
 
-            topology[sw][port] = '"{}"[{}]'.format(remote_sw, remote_port)
-            topology[remote_sw][remote_port] = '"{}"[{}]'.format(sw, port)
+            topology[sw]['port_connections'][port] = '"{}"[{}]'.format(remote_sw, remote_port)
+            topology[remote_sw]['port_connections'][remote_port] = '"{}"[{}]'.format(sw, port)
 
 
     # Then connect the HCAs to the leaf switches.
@@ -296,18 +314,17 @@ if __name__ == '__main__':
             # For fully connected roots
             sw_no = n * sw_per_row + (sw_no - n * sw_per_row)
 
-        topology[hca][1] = '"{}"[{}]'.format(sw, port)
-        topology[sw][port] = '"{}"[1]'.format(hca)
+        topology[hca]['port_connections'][1] = '"{}"[{}]'.format(sw, port)
+        topology[sw]['port_connections'][port] = '"{}"[1]'.format(hca)
 
 
     # Delete nodes that are not connected at all.
     # (This will never really delete anything with the current implementation
     # but keep it here for the future.)
     for node_name in topology.keys():
-        total_ports = len(topology[node_name])
         empty = 1
-        for port in xrange(1, total_ports + 1):
-            if (topology[node_name][port]):
+        for port in xrange(1, topology[node_name]['total_ports'] + 1):
+            if (topology[node_name]['port_connections'][port]):
                 empty = 0
                 break
 
@@ -317,15 +334,14 @@ if __name__ == '__main__':
 
     # Print the topology
     for node_name in topology.keys():
-        total_ports = len(topology[node_name])
         node_type = "Hca" if node_name.lower().startswith("hca") else "Switch"
 
-        print '{:<8}{} "{}"'.format(node_type, total_ports, node_name)
-        for port in xrange(1, total_ports + 1):
-            if topology[node_name][port]:
-                print '[{}]       {}'.format(port, topology[node_name][port])
+        print '{:<8}{} "{}"'.format(node_type, topology[node_name]['total_ports'], node_name)
+        for port in xrange(1, topology[node_name]['total_ports'] + 1):
+            if topology[node_name]['port_connections'][port]:
+                print '[{}]       {}'.format(port, topology[node_name]['port_connections'][port])
 
-            if (port == total_ports):
+            if (port == topology[node_name]['total_ports']):
                 print ''
 
     # Print the informational message in the STDERR with LOG, so that it doesn't get in the output file when STDOUT is redirected in a file.
@@ -335,3 +351,5 @@ if __name__ == '__main__':
 
     LOG.info("If you want to generate a dot file from the generated topology, please use the script InfiniBand-Graphviz-ualization.\n"
              "You can get a copy at: https://github.com/cyberang3l/InfiniBand-Graphviz-ualization.")
+
+    #print_(topology)
