@@ -19,6 +19,7 @@ import os
 import sys
 import argparse
 import logging
+import time
 from collections import OrderedDict
 
 __all__ = [
@@ -26,7 +27,7 @@ __all__ = [
 ]
 
 PROGRAM_NAME = 'FatTreeBuilder'
-VERSION = '0.1.0'
+VERSION = '0.2.0'
 AUTHOR = 'Vangelis Tasoulas'
 
 LOG = logging.getLogger('default.' + __name__)
@@ -69,6 +70,18 @@ def print_(value_to_be_printed, print_indent=0, spaces_per_indent=4, endl="\n"):
     else:
         string = ('{0}{1}{2}'.format(print_indent * spaces_per_indent * ' ', value_to_be_printed, endl))
         sys.stdout.write(string)
+
+#----------------------------------------------------------------------
+def int_to_hex_str(number, hex_length = -2, prefix_with_0x = False):
+    """
+    Converts an int to a hex string with the number of hex_length zeros prepended
+    """
+    hex_str = "{0:#0{1}x}".format(number, hex_length + 2)
+
+    if (not prefix_with_0x):
+        hex_str = hex_str[2:len(hex_str)]
+
+    return hex_str
 
 #----------------------------------------------------------------------
 
@@ -142,7 +155,7 @@ def _command_Line_Options():
                                   action="store_true",
                                   default=False,
                                   dest="isQuiet",
-                                  help="Disable logging in the console. Nothing will be printed.")
+                                  help="Disable logging in the console.")
     loggingGroupOpts.add_argument("-l", "--loglevel",
                                   action="store",
                                   default="INFO",
@@ -199,8 +212,55 @@ if __name__ == '__main__':
     #LOG.info("INFO message are printed")
     #LOG.debug("DEBUG messages are printed")
 
-    hca_guid_base = 0x0 # We want to define a GUID for each HCA and each port. The node GUID of the first Hca will be hca_guid_base
+    # The output of ibnetdiscover looks like this:
+    # vendid=0x0
+    # devid=0x0
+    # sysimgguid=0x200000
+    # switchguid=0x200000(200000)
+    # Switch  4 "S-0000000000200000"          # "Switch0" base port 0 lid 1 lmc 0
+    # [1]     "S-0000000000200004"[3]         # "Switch4" lid 7 4xSDR
+    # [2]     "S-0000000000200005"[3]         # "Switch5" lid 9 4xSDR
+    # [3]     "H-0000000000100000"[1](100001)                 # "Hca0" lid 2 4xSDR
+    # [4]     "H-0000000000100002"[1](100003)                 # "Hca1" lid 5 4xSDR
+    #
+    # vendid=0x0
+    # devid=0x0
+    # sysimgguid=0x10000e
+    # caguid=0x10000e
+    # Ca      1 "H-000000000010000e"          # "Hca7"
+    # [1](10000f)     "S-0000000000200003"[4]         # lid 20 lmc 0 "Switch3" lid 6 4xSDR
+    #
+    # Based on this output, here I make template lines with placeholders for different purposes:
+    # The place holders must be replced with:
+    #    node_type_long = Switch or Hca
+    #    node_type_short = S or H (for switch or hca respectively)
+    #    total_port = total number of ports for this node
+    #    node_guid = the GUID of this node
+    #    node_name = the name of this node
+    node_line = '{node_type_long}\t{total_ports} "{node_type_short}-{node_guid}"\t\t# "{node_name}"'
+    #    local_port = An integer showing which local port is connected to a remote
+    #    rem_node_type_short = S or H
+    #    rem_node_guid = The guid of the remote node
+    #    rem_port = the port of the remote node that we connect with
+    #    rem_node_name = the name of the remote node
+    #    link_speed = something like 4xSDR, 4xDDR, 4xQDR, 4xFDR, 4xEDR, 4xHDR indicating the link speed
+    #    local_port_guid = If the local port is an HCA port, then we need to define the local port guid
+    #    rem_port_guid = If the remote port is an HCA port, then we need to define the remote port guid
+    port_lines = {}
+    port_lines['switch'] = {}
+    # line to use if local is a switch, remote is a switch
+    port_lines['switch']['switch'] = '[{local_port}]\t"{rem_node_type_short}-{rem_node_guid}"[{rem_port}]\t\t# "{rem_node_name}" lid 0 {link_speed}'
+    # line to use if local is a switch, remote is an hca
+    port_lines['switch']['hca'] = '[{local_port}]\t"{rem_node_type_short}-{rem_node_guid}"[{rem_port}]({rem_port_guid}) \t\t# "{rem_node_name}" lid 0 {link_speed}'
+    port_lines['hca'] = {}
+    # line to use if local is an hca, remote is a switch
+    port_lines['hca']['switch'] = '[{local_port}]({local_port_guid}) \t"{rem_node_type_short}-{rem_node_guid}"[{rem_port}]\t\t# lid 0 lmc 0 "{rem_node_name}" lid 0 {link_speed}'
+    # line to use if local is an hca, remote is an hca
+    port_lines['hca']['hca'] = '[{local_port}]({local_port_guid}) \t"{rem_node_type_short}-{rem_node_guid}"[{rem_port}]({rem_port_guid}) \t\t# lid 0 lmc 0 "{rem_node_name}" lid 0 {link_speed}'
+
+    hca_guid_base = 0x1000000 # We want to define a GUID for each HCA and each port. The node GUID of the first Hca will be hca_guid_base
     sw_guid_base = hca_guid_base + 0x1000000
+    default_link_speed = '4xEDR'
 
     k = options.k # k (k-ary-n-Tree) is half the number of ports for each switch
     n = options.n # n (k-ary-n-Tree) is the number of levels in the tree
@@ -226,26 +286,26 @@ if __name__ == '__main__':
         sw = "Switch{}".format(sw_no)
         topology[sw] = {}
 
-        topology[sw]['type'] = 'switch'
-        topology[sw]['port_connections'] = {}
+        topology[sw]['node_type'] = 'switch'
+        topology[sw]['ports'] = {}
         topology[sw]['guids'] = {}
 
         topology[sw]['guids']['node'] = sw_guid_base + sw_no
         for port in xrange(1, k * 2 + 1):
-            topology[sw]['port_connections'][port] = None
-        topology[sw]['total_ports'] = len(topology[sw]['port_connections'])
+            topology[sw]['ports'][port] = None
+        topology[sw]['total_ports'] = len(topology[sw]['ports'])
 
     # Initialize all Hca's
     for hca_no in xrange(number_of_hca):
         hca = "Hca{}".format(hca_no)
         topology[hca] = {}
-        topology[hca]['type'] = 'hca'
+        topology[hca]['node_type'] = 'hca'
         topology[hca]['guids'] = {}
-        topology[hca]['port_connections'] = {}
+        topology[hca]['ports'] = {}
 
         topology[hca]['guids']['node'] = hca_guid_base + hca_no * 2
-        topology[hca]['port_connections'][1] = None
-        topology[hca]['total_ports'] = len(topology[hca]['port_connections'])
+        topology[hca]['ports'][1] = None
+        topology[hca]['total_ports'] = len(topology[hca]['ports'])
         topology[hca]['guids'][1] = topology[hca]['guids']['node'] + 1
 
     # First connect the switches between them, to form the fat tree.
@@ -295,11 +355,11 @@ if __name__ == '__main__':
             remote_sw = "Switch{}".format(remote_sw_no)
 
             remote_port = remote_port_offset + 1
-            while topology[remote_sw]['port_connections'][remote_port] is not None:
+            while topology[remote_sw]['ports'][remote_port] is not None:
                 remote_port += 1
 
-            topology[sw]['port_connections'][port] = '"{}"[{}]'.format(remote_sw, remote_port)
-            topology[remote_sw]['port_connections'][remote_port] = '"{}"[{}]'.format(sw, port)
+            topology[sw]['ports'][port] = {remote_sw: remote_port}
+            topology[remote_sw]['ports'][remote_port] = {sw: port}
 
 
     # Then connect the HCAs to the leaf switches.
@@ -314,8 +374,8 @@ if __name__ == '__main__':
             # For fully connected roots
             sw_no = n * sw_per_row + (sw_no - n * sw_per_row)
 
-        topology[hca]['port_connections'][1] = '"{}"[{}]'.format(sw, port)
-        topology[sw]['port_connections'][port] = '"{}"[1]'.format(hca)
+        topology[hca]['ports'][1] = {sw: port}
+        topology[sw]['ports'][port] = {hca: 1}
 
 
     # Delete nodes that are not connected at all.
@@ -324,7 +384,7 @@ if __name__ == '__main__':
     for node_name in topology.keys():
         empty = 1
         for port in xrange(1, topology[node_name]['total_ports'] + 1):
-            if (topology[node_name]['port_connections'][port]):
+            if (topology[node_name]['ports'][port]):
                 empty = 0
                 break
 
@@ -333,15 +393,62 @@ if __name__ == '__main__':
 
 
     # Print the topology
-    for node_name in topology.keys():
-        node_type = "Hca" if node_name.lower().startswith("hca") else "Switch"
+    print '#'
+    print '# Topology file: generated with FatTreeBuilder.py on {}'.format(time.ctime())
+    print '# https://github.com/cyberang3l/InfiniBand-Topology-Builder/'
+    print '#'
+    print '# Topology description'
+    print '# -------------------------------'
+    print '# k = {}, n = {}{fully_populated}'.format(k, n, fully_populated=', Fully populated' if fully_connected_roots else '')
+    print '# Total number of nodes: {}'.format(number_of_hca + number_of_sw)
+    print '# Total number of Switches: {}'.format(number_of_sw)
+    print '# Total number of HCAs: {}'.format(number_of_hca)
+    print '#'
+    print ''
 
-        print '{:<8}{} "{}"'.format(node_type, topology[node_name]['total_ports'], node_name)
-        for port in xrange(1, topology[node_name]['total_ports'] + 1):
-            if topology[node_name]['port_connections'][port]:
-                print '[{}]       {}'.format(port, topology[node_name]['port_connections'][port])
+    for local_node_name in topology.keys():
+        node_type = topology[local_node_name]['node_type']
+        node_type_long = "Ca" if node_type == 'hca' else "Switch"
+        node_type_short = "H" if node_type == 'hca' else "S"
+        node_guid = int_to_hex_str(topology[local_node_name]['guids']['node'], 16)
 
-            if (port == topology[node_name]['total_ports']):
+
+        print 'vendid=0x0'
+        print 'devid=0x0'
+        print 'sysimgguid={node_guid_with_0x}'.format(node_guid_with_0x = int_to_hex_str(topology[local_node_name]['guids']['node'], prefix_with_0x=True))
+        if node_type == 'switch':
+            print 'switchguid={node_guid_with_0x}({node_guid})'.format(node_guid_with_0x = int_to_hex_str(topology[local_node_name]['guids']['node'],
+                                                                                                          prefix_with_0x=True),
+                                                                       node_guid = int_to_hex_str(topology[local_node_name]['guids']['node']))
+        elif node_type == 'hca':
+            print 'caguid={node_guid_with_0x}'.format(node_guid_with_0x = int_to_hex_str(topology[local_node_name]['guids']['node'], prefix_with_0x=True))
+
+        print node_line.format(node_type_long = node_type_long,
+                               total_ports = topology[local_node_name]['total_ports'],
+                               node_type_short = node_type_short,
+                               node_guid = node_guid,
+                               node_name = local_node_name)
+        for port in xrange(1, topology[local_node_name]['total_ports'] + 1):
+            node_port_guid = int_to_hex_str(topology[local_node_name]['guids'][port]) if node_type == 'hca' else None
+            if topology[local_node_name]['ports'][port]:
+                rem_node_name = topology[local_node_name]['ports'][port].keys().pop()
+                rem_node_port = topology[local_node_name]['ports'][port].values().pop()
+                rem_node_type = topology[rem_node_name]['node_type']
+                rem_node_type_long = "Ca" if rem_node_type == 'hca' else "Switch"
+                rem_node_type_short = "H" if rem_node_type == 'hca' else "S"
+                rem_node_guid = int_to_hex_str(topology[rem_node_name]['guids']['node'], 16)
+                rem_node_port_guid = int_to_hex_str(topology[rem_node_name]['guids'][rem_node_port]) if rem_node_type == 'hca' else None
+
+                print port_lines[node_type][rem_node_type].format(local_port = port,
+                                                                  rem_node_type_short = rem_node_type_short,
+                                                                  rem_node_guid = rem_node_guid,
+                                                                  rem_port = rem_node_port,
+                                                                  rem_node_name = rem_node_name,
+                                                                  link_speed = default_link_speed,
+                                                                  rem_port_guid = rem_node_port_guid,
+                                                                  local_port_guid = node_port_guid)
+
+            if (port == topology[local_node_name]['total_ports']):
                 print ''
 
     # Print the informational message in the STDERR with LOG, so that it doesn't get in the output file when STDOUT is redirected in a file.
@@ -352,4 +459,5 @@ if __name__ == '__main__':
     LOG.info("If you want to generate a dot file from the generated topology, please use the script InfiniBand-Graphviz-ualization.\n"
              "You can get a copy at: https://github.com/cyberang3l/InfiniBand-Graphviz-ualization.")
 
+    # Uncomment the following to see how the topology looks like in the dictionary
     #print_(topology)
