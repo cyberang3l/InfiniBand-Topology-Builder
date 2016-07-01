@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright (C) 2015 Vangelis Tasoulas <vangelis@tasoulas.net>
+# Copyright (C) 2016 Vangelis Tasoulas <vangelis@tasoulas.net>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -42,7 +42,7 @@ def error_and_exit(message):
     """
     Prints the "message" and exits with status 1
     """
-    print("\nFATAL ERROR:\n" + message + "\n")
+    print("\nFATAL ERROR:\n" + message + "\n", file=sys.stderr)
     exit(1)
 
 #----------------------------------------------------------------------
@@ -183,6 +183,14 @@ def _command_Line_Options():
                         default=False,
                         dest="fully_connected_roots",
                         help="In a k-ary-n-tree, the root switches will have only half of their ports connected. If this options is used, then another k-ary-(n-1)-tree will be connected to the empty ports of the root switches, effectively doubling the number of nodes in the network.")
+    parser.add_argument("-o", "--oversubscription",
+                        action="store",
+                        choices=[1, 2, 3, 4],
+                        type=int,
+                        default=1,
+                        dest="oversub",
+                        help="Choose the oversubscription rate.")
+
 
     opts = parser.parse_args()
 
@@ -262,6 +270,10 @@ if __name__ == '__main__':
     hca_guid_base = 0x1000000 # We want to define a GUID for each HCA and each port. The node GUID of the first Hca will be hca_guid_base
     sw_guid_base = hca_guid_base + 0x1000000
     default_link_speed = '4xEDR'
+    max_sw_ports = 48 # Max ports per switch in the generated topology. If the user chooses some insanely huge topology
+                      # that requires very many ports per sw, do not build the topology. At the moment, the OmniPath architecture
+                      # offers switches with up to 48 ports, Oracle IB EDR Switches offer up to 38 4x ports and Mellanox switches
+                      # offer up to 36 ports.
 
     k = options.k # k (k-ary-n-Tree) is half the number of ports for each switch
     n = options.n # n (k-ary-n-Tree) is the number of levels in the tree
@@ -271,14 +283,25 @@ if __name__ == '__main__':
                                                           # empty ports of the root switches, effectively doubling the number of nodes in the
                                                           # network.
 
+    oversub = options.oversub
+
+    # Find how many ports per switch are needed in the leaf level:
+    #     k ports goes up, and k * oversub ports go down to the hosts.
+    # If more than max_sw_ports, then exit.
+    ports_per_sw = k + (k * oversub)
+    if ports_per_sw > max_sw_ports:
+        error_and_exit("{} ports are needed per switch, but the"
+                       " max allowed ports per switch are {}".format(
+                           ports_per_sw, max_sw_ports))
+
     sw_per_row = k**(n-1)
 
     if fully_connected_roots:
         number_of_sw  = sw_per_row * ((n * 2) - 1)
-        number_of_hca = k**n * 2
+        number_of_hca = k**n * 2 * oversub
     else:
         number_of_sw  = sw_per_row * n
-        number_of_hca = k**n
+        number_of_hca = k**n * oversub
 
     topology = OrderedDict()
 
@@ -292,7 +315,7 @@ if __name__ == '__main__':
         topology[sw]['guids'] = {}
 
         topology[sw]['guids']['node'] = sw_guid_base + sw_no
-        for port in xrange(1, k * 2 + 1):
+        for port in xrange(1, ports_per_sw + 1):
             topology[sw]['ports'][port] = None
         topology[sw]['total_ports'] = len(topology[sw]['ports'])
 
@@ -366,18 +389,17 @@ if __name__ == '__main__':
     # Then connect the HCAs to the leaf switches.
     for hca_no in xrange(number_of_hca):
         hca = "Hca{}".format(hca_no)
-        sw_no = hca_no // k
+        sw_no = hca_no // (k * oversub)
         if (sw_no > sw_per_row - 1):
             sw_no += (n - 1) * sw_per_row
         sw = "Switch{}".format(sw_no)
-        port = hca_no % k + (k + 1)
+        port = hca_no % (k * oversub) + (k + 1)
         if sw_no > sw_per_row:
             # For fully connected roots
             sw_no = n * sw_per_row + (sw_no - n * sw_per_row)
 
         topology[hca]['ports'][1] = {sw: port}
         topology[sw]['ports'][port] = {hca: 1}
-
 
     # Delete nodes that are not connected at all.
     # (This will never really delete anything with the current implementation
