@@ -5,14 +5,25 @@ chmod +x FatTreeBuilder.py
 dest_dir=built-topologies
 mkdir "${dest_dir}" 2> /dev/null
 
-for ((n=2; n<=4; n++)); do
-	for ((k=2; k<=19; k++)); do
-		if [[ ${n} -eq 4 && ${k} -gt 12 ]]; then
-			break
-		fi
-		echo "Building k-ary-n tree with k=${k}, n=${n}"
-		./FatTreeBuilder.py -q -k ${k} -n ${n} > "${dest_dir}"/k-${k}-n-${n}.topo
-		./FatTreeBuilder.py -q -k ${k} -n ${n} -f > "${dest_dir}"/k-${k}-n-${n}-Full.topo
+for ((oo=1; oo<=4; oo*=2)); do
+	for ((nn=2; nn<=4; nn++)); do
+		for ((kk=2; kk<=19; kk++)); do
+			if [[ ${nn} -eq 4 && ${kk} -gt 12 ]]; then
+				break
+			fi
+			k=$(printf "%02d" ${kk})
+			n=$(printf "%02d" ${nn})
+			o=$(printf "%02d" ${oo})
+			echo "Building k-ary-n tree with k=${k}, n=${n}, oversubscription=${o}"
+			./FatTreeBuilder.py -q -k ${k} -n ${n} -o ${o} > "${dest_dir}"/k-${k}-n-${n}-o-${o}.topo 2> /dev/null
+			ret=$?
+			if [[ $ret -eq 0 ]]; then
+				./FatTreeBuilder.py -q -k ${k} -n ${n} -o ${o} -f > "${dest_dir}"/k-${k}-n-${n}-o-${o}-Full.topo 2> /dev/null
+			else
+				echo "   cannot build this topology - Too many ports per switch required"
+				rm -f "${dest_dir}"/k-${k}-n-${n}-o-${o}.topo
+			fi
+		done
 	done
 done
 
