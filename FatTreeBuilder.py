@@ -28,7 +28,7 @@ __all__ = [
 ]
 
 PROGRAM_NAME = 'FatTreeBuilder'
-VERSION = '0.2.1'
+VERSION = '0.2.2'
 AUTHOR = 'Vangelis Tasoulas'
 
 LOG = logging.getLogger('default.' + __name__)
@@ -268,7 +268,8 @@ if __name__ == '__main__':
     port_lines['hca']['hca'] = '[{local_port}]({local_port_guid}) \t"{rem_node_type_short}-{rem_node_guid}"[{rem_port}]({rem_port_guid}) \t\t# lid 0 lmc 0 "{rem_node_name}" lid 0 {link_speed}'
 
     hca_guid_base = 0x1000000 # We want to define a GUID for each HCA and each port. The node GUID of the first Hca will be hca_guid_base
-    sw_guid_base = hca_guid_base + 0x1000000
+    port_guid_base = hca_guid_base + 0x1000000
+    sw_guid_base = port_guid_base + 0x1000000
     default_link_speed = '4xEDR'
     max_sw_ports = 48 # Max ports per switch in the generated topology. If the user chooses some insanely huge topology
                       # that requires very many ports per sw, do not build the topology. At the moment, the OmniPath architecture
@@ -327,10 +328,12 @@ if __name__ == '__main__':
         topology[hca]['guids'] = {}
         topology[hca]['ports'] = {}
 
-        topology[hca]['guids']['node'] = hca_guid_base + hca_no * 2
+        #topology[hca]['guids']['node'] = hca_guid_base + hca_no * 2
+        topology[hca]['guids']['node'] = hca_guid_base + hca_no
         topology[hca]['ports'][1] = None
         topology[hca]['total_ports'] = len(topology[hca]['ports'])
-        topology[hca]['guids'][1] = topology[hca]['guids']['node'] + 1
+        #topology[hca]['guids'][1] = topology[hca]['guids']['node'] + 1
+        topology[hca]['guids'][1] = port_guid_base + hca_no
 
     # First connect the switches between them, to form the fat tree.
     for sw_no in xrange(number_of_sw):
@@ -422,7 +425,7 @@ if __name__ == '__main__':
     print('#')
     print('# Topology description')
     print('# -------------------------------')
-    print('# k = {}, n = {}{fully_populated}'.format(k, n, fully_populated=', Fully populated' if fully_connected_roots else ''))
+    print('# k = {}, n = {}, oversubscription = {}{fully_populated}'.format(k, n, oversub, fully_populated=', Fully populated' if fully_connected_roots else ''))
     print('# Total number of nodes: {}'.format(number_of_hca + number_of_sw))
     print('# Total number of Switches: {}'.format(number_of_sw))
     print('# Total number of HCAs: {}'.format(number_of_hca))
